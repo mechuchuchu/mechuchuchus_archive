@@ -29,6 +29,10 @@ Usage:
     python scaling_sweep.py --family dense
     python scaling_sweep.py --family joint --batch_size 256 --grad_accum 4
     python scaling_sweep.py --plot   # JSON 읽어서 dense/joint 각각 별도 figure로 plot
+
+    한 가지 실험 설계상 참고: grad_accum으로 effective batch를 키우면 같은 steps에서 보는 총 샘플 수도 G배 늘어나니까, 
+    dense vs joint exponent 비교할 땐 두 family에 같은 --batch_size --grad_accum 조합 쓰는 것만 지키면 됨. 
+    다르게 쓰면 compute-per-step이 달라져서 param-축 비교는 괜찮아도 FLOPs-축 비교가 꼬임.
 """
 
 import argparse
