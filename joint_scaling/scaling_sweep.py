@@ -59,7 +59,7 @@ np.random.seed(SEED)
 
 
 # ---------------- Data ----------------
-SOFT_LABEL_TEMPERATURE = 1.0  # 낮을수록 target이 더 뾰족(=E가 작아짐), 높을수록 uniform에 가까움(=E가 커짐)
+SOFT_LABEL_TEMPERATURE = 0.3  # 낮을수록 target이 더 뾰족(=E가 작아짐), 높을수록 uniform에 가까움(=E가 커짐)
 
 
 def make_dataset(n=N_SAMPLES, device=DEVICE):
