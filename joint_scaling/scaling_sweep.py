@@ -46,8 +46,8 @@ NUM_CLASSES = 1000
 # 스모크 테스트 기본값 (로컬 3070에서 빠르게 도는 규모).
 # 실제로 스케일 곡선을 제대로 뽑으려면 N_SAMPLES를 최대 1M까지,
 # STEPS도 비례해서 키우는 걸 권장 (주석 참고).
-N_SAMPLES = 20_000       # -> 1,000,000 까지 확장 가능 (메모리 되는 선에서)
-BATCH_SIZE = 256
+N_SAMPLES = 80_000       # -> 1,000,000 까지 확장 가능 (메모리 되는 선에서)
+BATCH_SIZE = 1024
 STEPS = 1500             # -> 데이터/param 커지면 같이 늘릴 것
 LR = 1e-3
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
