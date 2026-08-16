@@ -1,1 +1,0 @@
-hf download hf://Ilikemechuri/Ilikemechuris_archive/cifar10_cat_to_dog_sign_ste_dropout_logits.pt

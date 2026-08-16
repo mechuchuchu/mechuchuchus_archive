@@ -1,1 +1,0 @@
-hf download hf://Ilikemechuri/Ilikemechuris_archive/sign_ste_seed2.pt
