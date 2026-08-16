@@ -9,22 +9,25 @@ Scaling law smoke test — Dense vs Joint-ensemble capacity scaling
 
 Task: 32x32x3 random pixel image -> random label(1~1000) 순수 memorization.
 구조 없는 input->label 매핑이라 "loss가 못 내려가는 이유 = 순전히 capacity
-부족"으로 isolate됨 (LLM이 시퀀스를 마지막 토큰에 눌러담아 vocab으로
-projection하는 것과 구조적으로 유사한 "무관한 고차원 입력을 저차원
-결정으로 매�기"라는 점에서 이 toy가 그 압력을 최소 구성으로 재현).
+부족"으로 isolate됨.
 
 - Dense family : 단일 CNN, width multiplier로 총 param 수 스윕
 - Joint family : CNN member H개 폭 고정, k(멤버 수)를 스윕 -> 총 param
   수 = k * (per-member params). Ensemble logit = mean(logits), CE는
   ensemble logit에 직접 걸림 (joint training, bagging 아님).
 
-결과는 JSON에 config별로 append 저장. FLOPs는 torch.profiler로 한 스텝
-(forward+backward) 프로파일링 후 step 수를 곱해 총 training compute를
-추정.
+결과는 JSON에 config별로 append 저장. FLOPs는 torch.profiler로 한
+optimizer step(grad_accum 사이클 전체: G번 fwd+bwd + step)을 프로파일링
+후 step 수를 곱해 총 training compute를 추정.
+
+Gradient accumulation:
+    --batch_size B --grad_accum G  ->  effective batch = B * G
+    --steps 는 optimizer step 수 기준 (micro-step 아님).
+    micro loss를 /G 해서 backward하므로 로깅 loss = effective batch 전체 mean CE.
 
 Usage:
     python scaling_sweep.py --family dense
-    python scaling_sweep.py --family joint
+    python scaling_sweep.py --family joint --batch_size 256 --grad_accum 4
     python scaling_sweep.py --plot   # JSON 읽어서 dense/joint 각각 별도 figure로 plot
 """
 
@@ -32,6 +35,7 @@ import argparse
 import json
 import os
 import time
+from contextlib import nullcontext
 
 import numpy as np
 import torch
@@ -44,11 +48,12 @@ CHANNELS = 3
 NUM_CLASSES = 1000
 
 # 스모크 테스트 기본값 (로컬 3070에서 빠르게 도는 규모).
-# 실제로 스케일 곡선을 제대로 뽑으려면 N_SAMPLES를 최대 1M까지,
-# STEPS도 비례해서 키우는 걸 권장 (주석 참고).
-N_SAMPLES = 100_000       # -> 1,000,000 까지 확장 가능 (메모리 되는 선에서)
+# 주의: y_soft가 N x 1000 float32라 1M 샘플이면 그것만 ~4GB.
+# 진짜 1M 가려면 soft label을 시드 기반 on-the-fly 생성으로 바꿀 것.
+N_SAMPLES = 100_000
 BATCH_SIZE = 1024
-STEPS = 2500             # -> 데이터/param 커지면 같이 늘릴 것
+STEPS = 2500              # optimizer step 수 (grad_accum과 무관)
+GRAD_ACCUM = 1
 LR = 1e-3
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 SEED = 0
@@ -78,19 +83,10 @@ def soft_cross_entropy(logits, target_probs):
 
 
 def irreducible_entropy_floor(target_probs):
-    """target distribution 자체의 평균 entropy = 이론적 loss 하한(E). 모델이 target을
-    완벽히 복제해도 CE는 0이 아니라 이 값까지만 내려갈 수 있음."""
+    """target distribution 자체의 평균 entropy = 이론적 loss 하한(E)."""
     eps = 1e-12
     ent = -(target_probs * (target_probs + eps).log()).sum(dim=1).mean()
     return ent.item()
-
-
-def iterate_batches(x, y, batch_size, steps, generator):
-    n = x.shape[0]
-    for _ in range(steps):
-        # generator가 CPU 고정이므로 인덱스도 CPU에서 뽑고, x가 CUDA면 인덱싱 시 자동으로 맞춰짐
-        idx = torch.randint(0, n, (batch_size,), generator=generator)
-        yield x[idx.to(x.device)], y[idx.to(x.device)]
 
 
 # ---------------- Model ----------------
@@ -129,51 +125,63 @@ class JointEnsemble(nn.Module):
         return logits.mean(dim=0)
 
 
-# ---------------- FLOPs profiling ----------------
-def profile_step_flops(model, x_batch, y_batch, opt):
-    """torch.profiler로 forward+backward 한 스텝의 FLOPs를 측정."""
-    model.train()
-    with torch.profiler.profile(
-        activities=[torch.profiler.ProfilerActivity.CPU]
-        + ([torch.profiler.ProfilerActivity.CUDA] if DEVICE == "cuda" else []),
-        with_flops=True,
-    ) as prof:
-        opt.zero_grad()
-        logits = model(x_batch)
-        loss = soft_cross_entropy(logits, y_batch)
-        loss.backward()
-        opt.step()
-
-    total_flops = sum(evt.flops for evt in prof.key_averages() if evt.flops is not None)
-    return total_flops
-
-
 # ---------------- Training loop ----------------
-def train_config(model, x, y, steps=STEPS, batch_size=BATCH_SIZE, lr=LR, tag=""):
+def train_config(model, x, y, steps, batch_size=BATCH_SIZE, lr=LR, grad_accum=1, tag=""):
+    """steps = optimizer step 수. 각 스텝은 grad_accum개의 micro-batch로 구성.
+
+    FLOPs 프로파일링은 워밍업 이후의 '실제 훈련 스텝 하나'를 프로파일러
+    context로 감싸서 측정 — 별도로 스텝을 한 번 더 돌리지 않으므로
+    (기존 버전의 이중 업데이트 버그 수정) 훈련 궤적이 오염되지 않음.
+    """
     model.to(DEVICE)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     # torch.randint(..., generator=...)가 CPU generator를 요구하므로 device와 무관하게 항상 cpu 고정
     gen = torch.Generator(device="cpu").manual_seed(SEED + 1)
+    n = x.shape[0]
 
-    floor_E = irreducible_entropy_floor(y)  # target distribution의 entropy = 이론적 loss 하한
+    floor_E = irreducible_entropy_floor(y)
+
+    # steps가 아주 작아도 프로파일링이 실행되도록 (기존: steps<=10이면 step_flops=None)
+    profile_at = min(10, max(0, steps - 1))
 
     loss_curve = []  # (step, loss) 서브샘플
     step_flops = None
     t0 = time.time()
 
-    for step, (xb, yb) in enumerate(iterate_batches(x, y, batch_size, steps, gen)):
-        if step == 10:  # 워밍업 후 한 스텝만 프로파일링 (early step은 캐시 미스 등으로 노이즈 큼)
-            step_flops = profile_step_flops(model, xb, yb, opt)
+    for step in range(steps):
+        do_profile = (step == profile_at and step_flops is None)
+        prof_cm = (
+            torch.profiler.profile(
+                activities=[torch.profiler.ProfilerActivity.CPU]
+                + ([torch.profiler.ProfilerActivity.CUDA] if DEVICE == "cuda" else []),
+                with_flops=True,
+            )
+            if do_profile
+            else nullcontext()
+        )
 
-        opt.zero_grad()
-        logits = model(xb)
-        loss = soft_cross_entropy(logits, yb)
-        loss.backward()
-        opt.step()
+        with prof_cm as prof:
+            opt.zero_grad(set_to_none=True)
+            loss_sum = 0.0  # micro loss(/G)들의 합 = effective batch 전체의 mean CE
+            for _ in range(grad_accum):
+                idx = torch.randint(0, n, (batch_size,), generator=gen).to(x.device)
+                xb, yb = x[idx], y[idx]
+                loss = soft_cross_entropy(model(xb), yb) / grad_accum
+                loss.backward()
+                loss_sum += loss.item()
+            opt.step()
+
+        if do_profile:
+            # grad_accum 사이클 전체(G번 fwd+bwd + step)가 포함된 값이므로
+            # total_flops_estimate = step_flops * steps 가 그대로 성립
+            step_flops = sum(evt.flops for evt in prof.key_averages() if evt.flops is not None)
 
         if step % 50 == 0 or step == steps - 1:
-            loss_curve.append((step, loss.item()))
-            print(f"[{tag}] step {step:5d}/{steps}  loss={loss.item():.5f}  (floor E={floor_E:.4f})", end="\r")
+            loss_curve.append((step, loss_sum))
+            print(
+                f"[{tag}] step {step:5d}/{steps}  loss={loss_sum:.5f}  (floor E={floor_E:.4f})",
+                end="\r",
+            )
 
     elapsed = time.time() - t0
     total_params = count_params(model)
@@ -187,6 +195,10 @@ def train_config(model, x, y, steps=STEPS, batch_size=BATCH_SIZE, lr=LR, tag="")
         "total_flops_estimate": total_flops_estimate,
         "elapsed_sec": elapsed,
         "irreducible_floor_E": floor_E,
+        "steps": steps,
+        "batch_size": batch_size,
+        "grad_accum": grad_accum,
+        "effective_batch": batch_size * grad_accum,
     }
 
 
@@ -214,18 +226,24 @@ JOINT_MEMBER_WIDTH = 8
 JOINT_K_LIST = [1, 2, 3, 5, 8, 13, 20]
 
 
-def run_dense_sweep(x, y):
+def run_dense_sweep(x, y, steps, batch_size, grad_accum):
     for width in DENSE_WIDTHS:
         model = SmallCNN(width=width)
-        record = train_config(model, x, y, tag=f"dense w={width}")
+        record = train_config(
+            model, x, y, steps=steps, batch_size=batch_size,
+            grad_accum=grad_accum, tag=f"dense w={width}",
+        )
         record.update({"family": "dense", "width": width, "k": 1})
         append_result(record)
 
 
-def run_joint_sweep(x, y):
+def run_joint_sweep(x, y, steps, batch_size, grad_accum):
     for k in JOINT_K_LIST:
         model = JointEnsemble(k=k, width=JOINT_MEMBER_WIDTH)
-        record = train_config(model, x, y, tag=f"joint k={k} H={JOINT_MEMBER_WIDTH}")
+        record = train_config(
+            model, x, y, steps=steps, batch_size=batch_size,
+            grad_accum=grad_accum, tag=f"joint k={k} H={JOINT_MEMBER_WIDTH}",
+        )
         record.update({"family": "joint", "width": JOINT_MEMBER_WIDTH, "k": k})
         append_result(record)
 
@@ -271,7 +289,8 @@ def plot_family(records, family, out_path):
     fig, ax = plt.subplots(figsize=(6, 5))
     color = "tab:blue" if family == "dense" else "tab:red"
     ax.scatter(params, losses, color=color, label=f"{family} (measured)")
-    fit_x = np.linspace(params.min(), params.max(), 200)
+    # log-x 축이므로 linspace 대신 geomspace로 fit line 샘플링
+    fit_x = np.geomspace(params.min(), params.max(), 200)
     fit_y = A * fit_x ** (-alpha) + floor_E
     ax.plot(fit_x, fit_y, "k--", label=f"L = {A:.3g}·P^(-{alpha:.3f}) + E")
     ax.axhline(floor_E, color="gray", linestyle=":", alpha=0.7, label=f"E (irreducible floor) = {floor_E:.4f}")
@@ -300,17 +319,22 @@ if __name__ == "__main__":
     parser.add_argument("--family", choices=["dense", "joint"], default=None)
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--n_samples", type=int, default=N_SAMPLES)
-    parser.add_argument("--steps", type=int, default=STEPS)
+    parser.add_argument("--steps", type=int, default=STEPS,
+                        help="optimizer step 수 (grad_accum과 무관)")
+    parser.add_argument("--batch_size", type=int, default=BATCH_SIZE,
+                        help="micro-batch 크기")
+    parser.add_argument("--grad_accum", type=int, default=GRAD_ACCUM,
+                        help="gradient accumulation step 수. effective batch = batch_size * grad_accum")
     args = parser.parse_args()
 
     if args.plot:
         make_plots()
     else:
-        STEPS = args.steps
+        # 기존 버그: STEPS 전역 재할당은 default arg에 반영 안 됨 -> 이제 전부 명시적으로 전달
         x, y = make_dataset(n=args.n_samples)
         if args.family == "dense":
-            run_dense_sweep(x, y)
+            run_dense_sweep(x, y, args.steps, args.batch_size, args.grad_accum)
         elif args.family == "joint":
-            run_joint_sweep(x, y)
+            run_joint_sweep(x, y, args.steps, args.batch_size, args.grad_accum)
         else:
             print("Specify --family dense | joint, or --plot")
