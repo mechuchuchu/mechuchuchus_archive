@@ -69,8 +69,9 @@ def make_dataset(n=N_SAMPLES, device=DEVICE):
 def iterate_batches(x, y, batch_size, steps, generator):
     n = x.shape[0]
     for _ in range(steps):
-        idx = torch.randint(0, n, (batch_size,), generator=generator, device=x.device)
-        yield x[idx], y[idx]
+        # generator가 CPU 고정이므로 인덱스도 CPU에서 뽑고, x가 CUDA면 인덱싱 시 자동으로 맞춰짐
+        idx = torch.randint(0, n, (batch_size,), generator=generator)
+        yield x[idx.to(x.device)], y[idx.to(x.device)]
 
 
 # ---------------- Model ----------------
@@ -132,7 +133,8 @@ def profile_step_flops(model, x_batch, y_batch, opt):
 def train_config(model, x, y, steps=STEPS, batch_size=BATCH_SIZE, lr=LR, tag=""):
     model.to(DEVICE)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
-    gen = torch.Generator(device=DEVICE if DEVICE == "cpu" else "cpu").manual_seed(SEED + 1)
+    # torch.randint(..., generator=...)가 CPU generator를 요구하므로 device와 무관하게 항상 cpu 고정
+    gen = torch.Generator(device="cpu").manual_seed(SEED + 1)
 
     loss_curve = []  # (step, loss) 서브샘플
     step_flops = None
