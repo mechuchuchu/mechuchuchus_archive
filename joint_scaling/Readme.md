@@ -1,4 +1,5 @@
 ```bash
+# 1번째 scaling
 git clone https://github.com/mechuchuchu/mechuchuchus_archive
 cd mechuchuchus_archive/joint_scaling
 python scaling_sweep.py --family dense --batch_size 1024 --grad_accum 4
