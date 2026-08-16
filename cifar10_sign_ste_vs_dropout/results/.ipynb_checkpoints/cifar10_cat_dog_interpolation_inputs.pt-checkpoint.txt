@@ -1,0 +1,1 @@
+hf download hf://Ilikemechuri/Ilikemechuris_archive/cifar10_cat_dog_interpolation_inputs.pt

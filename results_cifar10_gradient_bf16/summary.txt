@@ -1,0 +1,17 @@
+CIFAR-10 Random Gradient Sparsification (bf16)
+======================================================================
+
+Device: cuda
+Precision: bf16 autocast
+Epochs: 40
+Batch size: 2048
+Runs: 8
+
+Run 01 | Adam  |    100% | Final Acc: 91.35% | Best Acc: 91.35% | Best Epoch: 40
+Run 02 | Adam  |     50% | Final Acc: 90.45% | Best Acc: 90.55% | Best Epoch: 37
+Run 03 | Adam  |     25% | Final Acc: 90.15% | Best Acc: 90.15% | Best Epoch: 40
+Run 04 | Adam  |     10% | Final Acc: 87.22% | Best Acc: 87.22% | Best Epoch: 40
+Run 05 | Adam  |      5% | Final Acc: 84.10% | Best Acc: 84.28% | Best Epoch: 39
+Run 06 | Adam  |      1% | Final Acc: 66.89% | Best Acc: 66.89% | Best Epoch: 38
+Run 07 | Adam  |    0.5% | Final Acc: 56.20% | Best Acc: 56.20% | Best Epoch: 40
+Run 08 | Adam  |    0.1% | Final Acc: 26.28% | Best Acc: 31.42% | Best Epoch: 11

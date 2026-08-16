@@ -1,0 +1,30 @@
+[kernel] wind_backstepping compiled, using CUDA path
+
+==================================================
+1) STANDARD GRU (2-layer, hidden=792, emb=512)
+   params: 22.50M
+   Epoch 1 | Loss: 0.6408 | Acc: 78.32%
+   Epoch 2 | Loss: 0.3220 | Acc: 83.43%
+   Epoch 3 | Loss: 0.1812 | Acc: 87.30%
+   Epoch 4 | Loss: 0.0716 | Acc: 86.64%
+   Epoch 5 | Loss: 0.0253 | Acc: 86.33%
+   Epoch 6 | Loss: 0.0164 | Acc: 86.38%
+   Epoch 7 | Loss: 0.0157 | Acc: 86.58%
+
+==================================================
+2) RWKV-7 (2-layer, hidden=512, head=64, kernel=True)
+   params: 22.50M
+   Epoch 1 | Loss: 0.4344 | Acc: 81.36%
+   Epoch 2 | Loss: 0.1689 | Acc: 83.89%
+   Epoch 3 | Loss: 0.0741 | Acc: 82.06%
+   Epoch 4 | Loss: 0.0508 | Acc: 80.02%
+   Epoch 5 | Loss: 0.0492 | Acc: 83.58%
+   Epoch 6 | Loss: 0.0450 | Acc: 82.62%
+   Epoch 7 | Loss: 0.0413 | Acc: 82.84%
+
+==================================================
+FINAL COMPARISON (IMDB test accuracy, 7 epochs)
+--------------------------------------------------
+Standard GRU              -> 86.58%
+RWKV-7                    -> 82.84%
+==================================================

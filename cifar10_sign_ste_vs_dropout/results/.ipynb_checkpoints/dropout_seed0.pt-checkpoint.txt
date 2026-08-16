@@ -1,0 +1,1 @@
+hf download hf://Ilikemechuri/Ilikemechuris_archive/dropout_seed0.pt
