@@ -222,12 +222,12 @@ def append_result(record):
 
 # ---------------- Sweeps ----------------
 # Dense: width multiplier 스윕 (총 param 수가 자연히 커짐)
-DENSE_WIDTHS = [4, 8, 16, 32, 64, 96]
+DENSE_WIDTHS = [4, 6, 8, 12, 16, 24, 32, 48, 64, 96]
 
 # Joint: per-member width는 고정(작게, "노드 하나의 capacity"에 해당),
 # k(멤버 수)를 스윕해서 총 param 수를 키움 — 이게 핵심 비교축.
 JOINT_MEMBER_WIDTH = 8
-JOINT_K_LIST = [1, 2, 3, 5, 8, 13, 20]
+JOINT_K_LIST = [1, 2, 3, 4, 5, 8, 11, 13, 15, 17, 20]
 
 
 def run_dense_sweep(x, y, steps, batch_size, grad_accum):
