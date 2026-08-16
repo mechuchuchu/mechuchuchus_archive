@@ -46,9 +46,9 @@ NUM_CLASSES = 1000
 # 스모크 테스트 기본값 (로컬 3070에서 빠르게 도는 규모).
 # 실제로 스케일 곡선을 제대로 뽑으려면 N_SAMPLES를 최대 1M까지,
 # STEPS도 비례해서 키우는 걸 권장 (주석 참고).
-N_SAMPLES = 80_000       # -> 1,000,000 까지 확장 가능 (메모리 되는 선에서)
+N_SAMPLES = 100_000       # -> 1,000,000 까지 확장 가능 (메모리 되는 선에서)
 BATCH_SIZE = 1024
-STEPS = 1500             # -> 데이터/param 커지면 같이 늘릴 것
+STEPS = 2500             # -> 데이터/param 커지면 같이 늘릴 것
 LR = 1e-3
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 SEED = 0
@@ -59,11 +59,30 @@ np.random.seed(SEED)
 
 
 # ---------------- Data ----------------
+SOFT_LABEL_TEMPERATURE = 1.0  # 낮을수록 target이 더 뾰족(=E가 작아짐), 높을수록 uniform에 가까움(=E가 커짐)
+
+
 def make_dataset(n=N_SAMPLES, device=DEVICE):
     g = torch.Generator().manual_seed(SEED)
     x = torch.randn(n, CHANNELS, IMG_SIZE, IMG_SIZE, generator=g)
-    y = torch.randint(0, NUM_CLASSES, (n,), generator=g)
-    return x.to(device), y.to(device)
+    # hard label 대신 soft target distribution: 샘플마다 고정된 random logit -> softmax
+    # 이러면 loss가 0으로 안 내려가고, target distribution의 entropy만큼 irreducible floor(E)가 생김
+    raw_logits = torch.randn(n, NUM_CLASSES, generator=g) / SOFT_LABEL_TEMPERATURE
+    y_soft = F.softmax(raw_logits, dim=1)
+    return x.to(device), y_soft.to(device)
+
+
+def soft_cross_entropy(logits, target_probs):
+    log_p = F.log_softmax(logits, dim=1)
+    return -(target_probs * log_p).sum(dim=1).mean()
+
+
+def irreducible_entropy_floor(target_probs):
+    """target distribution 자체의 평균 entropy = 이론적 loss 하한(E). 모델이 target을
+    완벽히 복제해도 CE는 0이 아니라 이 값까지만 내려갈 수 있음."""
+    eps = 1e-12
+    ent = -(target_probs * (target_probs + eps).log()).sum(dim=1).mean()
+    return ent.item()
 
 
 def iterate_batches(x, y, batch_size, steps, generator):
@@ -121,7 +140,7 @@ def profile_step_flops(model, x_batch, y_batch, opt):
     ) as prof:
         opt.zero_grad()
         logits = model(x_batch)
-        loss = F.cross_entropy(logits, y_batch)
+        loss = soft_cross_entropy(logits, y_batch)
         loss.backward()
         opt.step()
 
@@ -136,6 +155,8 @@ def train_config(model, x, y, steps=STEPS, batch_size=BATCH_SIZE, lr=LR, tag="")
     # torch.randint(..., generator=...)가 CPU generator를 요구하므로 device와 무관하게 항상 cpu 고정
     gen = torch.Generator(device="cpu").manual_seed(SEED + 1)
 
+    floor_E = irreducible_entropy_floor(y)  # target distribution의 entropy = 이론적 loss 하한
+
     loss_curve = []  # (step, loss) 서브샘플
     step_flops = None
     t0 = time.time()
@@ -146,13 +167,13 @@ def train_config(model, x, y, steps=STEPS, batch_size=BATCH_SIZE, lr=LR, tag="")
 
         opt.zero_grad()
         logits = model(xb)
-        loss = F.cross_entropy(logits, yb)
+        loss = soft_cross_entropy(logits, yb)
         loss.backward()
         opt.step()
 
         if step % 50 == 0 or step == steps - 1:
             loss_curve.append((step, loss.item()))
-            print(f"[{tag}] step {step:5d}/{steps}  loss={loss.item():.5f}", end="\r")
+            print(f"[{tag}] step {step:5d}/{steps}  loss={loss.item():.5f}  (floor E={floor_E:.4f})", end="\r")
 
     elapsed = time.time() - t0
     total_params = count_params(model)
@@ -165,6 +186,7 @@ def train_config(model, x, y, steps=STEPS, batch_size=BATCH_SIZE, lr=LR, tag="")
         "step_flops": step_flops,
         "total_flops_estimate": total_flops_estimate,
         "elapsed_sec": elapsed,
+        "irreducible_floor_E": floor_E,
     }
 
 
@@ -209,12 +231,29 @@ def run_joint_sweep(x, y):
 
 
 # ---------------- Plotting (dense/joint 별개 figure) ----------------
-def fit_power_law(param_counts, losses):
-    """log-log linear regression: log(loss) = a * log(params) + b -> loss = exp(b) * params^a"""
-    log_p = np.log(param_counts)
-    log_l = np.log(losses)
-    a, b = np.polyfit(log_p, log_l, 1)
-    return a, np.exp(b)
+def fit_power_law_with_floor(param_counts, losses, floor_E):
+    """L(P) = A * P^(-alpha) + E  (E는 실측 irreducible entropy floor로 고정).
+    scipy 있으면 nonlinear least squares, 없으면 (loss - E)에 대해 log-log 선형 fit으로 근사."""
+    param_counts = np.asarray(param_counts, dtype=float)
+    losses = np.asarray(losses, dtype=float)
+    residual = np.clip(losses - floor_E, 1e-8, None)  # L - E > 0 이어야 power law로 fit 가능
+
+    try:
+        from scipy.optimize import curve_fit
+
+        def model_fn(p, A, alpha):
+            return A * p ** (-alpha) + floor_E
+
+        (A, alpha), _ = curve_fit(
+            model_fn, param_counts, losses, p0=[losses.max(), 0.3], maxfev=10000
+        )
+        return A, alpha
+    except ImportError:
+        # log-log 선형 근사: log(L - E) = log(A) - alpha * log(P)
+        log_p = np.log(param_counts)
+        log_r = np.log(residual)
+        neg_alpha, log_A = np.polyfit(log_p, log_r, 1)
+        return np.exp(log_A), -neg_alpha
 
 
 def plot_family(records, family, out_path):
@@ -224,24 +263,28 @@ def plot_family(records, family, out_path):
     fam_records.sort(key=lambda r: r["total_params"])
     params = np.array([r["total_params"] for r in fam_records])
     losses = np.array([r["final_loss"] for r in fam_records])
+    # 모든 config가 같은 dataset(=같은 soft label)으로 생성됐으므로 floor_E는 공통값
+    floor_E = fam_records[0]["irreducible_floor_E"]
 
-    exponent, coeff = fit_power_law(params, losses)
+    A, alpha = fit_power_law_with_floor(params, losses, floor_E)
 
     fig, ax = plt.subplots(figsize=(6, 5))
-    ax.scatter(params, losses, color="tab:blue" if family == "dense" else "tab:red", label=family)
-    fit_x = np.linspace(params.min(), params.max(), 100)
-    fit_y = coeff * fit_x ** exponent
-    ax.plot(fit_x, fit_y, "k--", label=f"L = {coeff:.3g} * P^{exponent:.3f}")
+    color = "tab:blue" if family == "dense" else "tab:red"
+    ax.scatter(params, losses, color=color, label=f"{family} (measured)")
+    fit_x = np.linspace(params.min(), params.max(), 200)
+    fit_y = A * fit_x ** (-alpha) + floor_E
+    ax.plot(fit_x, fit_y, "k--", label=f"L = {A:.3g}·P^(-{alpha:.3f}) + E")
+    ax.axhline(floor_E, color="gray", linestyle=":", alpha=0.7, label=f"E (irreducible floor) = {floor_E:.4f}")
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("Total parameters")
-    ax.set_ylabel("Final train loss (CE)")
-    ax.set_title(f"{family} scaling: random-image memorization")
+    ax.set_ylabel("Final train loss (soft CE)")
+    ax.set_title(f"{family} scaling +E: random-image soft-label memorization")
     ax.legend()
     ax.grid(True, which="both", alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
-    print(f"[saved] {out_path}  (exponent={exponent:.4f}, coeff={coeff:.4g})")
+    print(f"[saved] {out_path}  (A={A:.4g}, alpha={alpha:.4f}, E={floor_E:.4f})")
 
 
 def make_plots():
