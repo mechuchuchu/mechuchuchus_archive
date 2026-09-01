@@ -269,8 +269,7 @@ def pretrain_real(model, device, args):
     """arm C: 실제 CIFAR-10으로 전체 학습 (upper bound)."""
     train_loader, test_loader = get_cifar_loaders(args.batch_size, args.workers, augment=True)
     model.unfreeze_all()
-    optimizer = optim.SGD(model.parameters(), lr=args.pretrain_lr,
-                          momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=args.pretrain_lr, weight_decay=5e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.pretrain_epochs)
     criterion = nn.CrossEntropyLoss()
 
@@ -295,7 +294,7 @@ def probe(model, device, args):
     n_all = sum(p.numel() for p in model.parameters())
     print(f"Trainable: {n_tr:,} / Total: {n_all:,} ({100*n_tr/n_all:.3f}%)")
 
-    optimizer = optim.SGD(trainable, lr=args.probe_lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.AdamW(trainable, lr=args.probe_lr,weight_decay=5e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.probe_epochs)
     criterion = nn.CrossEntropyLoss()
 
@@ -328,10 +327,10 @@ def parse_args():
     p.add_argument("--target-acc", type=float, default=0.999,
                    help="memorize 완료 판정 기준 train accuracy")
     p.add_argument("--pretrain-epochs", type=int, default=300)
-    p.add_argument("--pretrain-lr", type=float, default=0.01)
+    p.add_argument("--pretrain-lr", type=float, default=3e-4)
 
     p.add_argument("--probe-epochs", type=int, default=50)
-    p.add_argument("--probe-lr", type=float, default=0.1)
+    p.add_argument("--probe-lr", type=float, default=1e-3)
 
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--workers", type=int, default=4)
