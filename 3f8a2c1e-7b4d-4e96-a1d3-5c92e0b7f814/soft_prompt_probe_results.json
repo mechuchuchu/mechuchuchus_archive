@@ -1,0 +1,94 @@
+{
+  "model_id": "IFM/K2-Horizon-0.9B",
+  "target_sentence": "At dusk, the paper moon drifted over the quiet harbor, carrying a small blue secret.",
+  "soft_prompt_tokens": 16,
+  "training_history": [
+    {
+      "step": 1,
+      "loss": 5.4009928703308105
+    },
+    {
+      "step": 25,
+      "loss": 0.371619313955307
+    },
+    {
+      "step": 50,
+      "loss": 0.3310621380805969
+    },
+    {
+      "step": 75,
+      "loss": 0.32721051573753357
+    },
+    {
+      "step": 100,
+      "loss": 0.31992611289024353
+    },
+    {
+      "step": 125,
+      "loss": 0.3132413625717163
+    },
+    {
+      "step": 150,
+      "loss": 0.2996719777584076
+    },
+    {
+      "step": 175,
+      "loss": 0.21152225136756897
+    },
+    {
+      "step": 200,
+      "loss": 0.1443270593881607
+    },
+    {
+      "step": 225,
+      "loss": 0.08447518199682236
+    },
+    {
+      "step": 241,
+      "loss": 0.016795895993709564
+    },
+    {
+      "step": 242,
+      "loss": 0.008233957923948765
+    }
+  ],
+  "responses": [
+    {
+      "question": "EN: What is X?",
+      "soft_prompt_response": "[no final answer before token limit]",
+      "literal_sentence_control": "The paper moon drifted over the quiet harbor, carrying a small blue secret.",
+      "blank_control": "**Answer:** A question."
+    },
+    {
+      "question": "EN: Translate X into Korean.",
+      "soft_prompt_response": "[no final answer before token limit]",
+      "literal_sentence_control": "The paper moon drifted over the quiet harbor, carrying a small blue secret.",
+      "blank_control": "I'm sorry, but I can't provide a translation for the text you've provided into Korean. If you'd like, you can share the specific sentence or phrase you'd like translated, and I'll help you with that."
+    },
+    {
+      "question": "EN: What feeling does X convey?",
+      "soft_prompt_response": "[no final answer before token limit]",
+      "literal_sentence_control": "The paper moon drifted over the quiet harbor, carrying a small blue secret.",
+      "blank_control": "It conveys a feeling of **joy**—the word itself is a bright, uplifting expression that suggests happiness, optimism, and a positive, enthusiastic mood."
+    },
+    {
+      "question": "KO: X는 뭐야?",
+      "soft_prompt_response": "[no final answer before token limit]",
+      "literal_sentence_control": "At dusk, the paper moon drifted over the quiet harbor, carrying a small blue secret.",
+      "blank_control": "[no final answer before token limit]"
+    },
+    {
+      "question": "KO: X를 한국어로 번역해줘.",
+      "soft_prompt_response": "[no final answer before token limit]",
+      "literal_sentence_control": "야, 베이스마스터의 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 외출하고, 베이스마스터가 �",
+      "blank_control": "안녕하세요! 어떤 문제를 도와드릴까요? 😊"
+    },
+    {
+      "question": "KO: 이 X는 어떤 느낌이야?",
+      "soft_prompt_response": "[no final answer before token limit]",
+      "literal_sentence_control": "The paper moon drifted over the quiet harbor, carrying a small blue secret.",
+      "blank_control": "**Answer**\n\n> **이 느낌이야?**  \n> (What does “이 느낌이야” mean?)\n\n---\n\n### 1.  Basic Korean Translation  \nThe phrase **이 느낌이야** is a colloquial way of saying **“What does this mean?”** or **“What is this about?”**  \n\n- **이** = “this” (the noun “this”)  \n- **느낌** = “feeling, mood, impression” (often used as a noun meaning “the feeling” or “the impression”)  \n- **이야** = “what?” (the interrogative particle “이야” is a common way to ask “what?” in informal speech)\n\nSo literally: *“What is this feeling/impression?”*  \n\n---\n\n### 2.  How it’s used in everyday conversation  \n\n| Situation | Example | Meaning |\n|-----------|---------|---------|\n| **Asking for clarification** | “이 느낌이야? 어떤 일이야?” | “What does this feeling refer to?” |\n| **Asking for a reason** | “이 느낌이야, 어떻게 이해할 수 있어?” | “What is the reason behind this feeling?” |\n| **In a story or dialogue** | “이 느낌이야, 이게 어떤 일이야?” | “What is this story about?” |\n| **In a conversation about a situation** | “이 느낌이야, 이게 어떤 일이야?” | “What is this situation?” |\n\n---\n\n### 3.  Common contexts where you’ll hear it  \n\n| Context | Example sentence | Explanation |\n|---------|----------------|-------------|\n| **Talking about a feeling** | “이 느낌이야, 어떤 일이야?” |"
+    }
+  ],
+  "recall_probe_exact_match": true
+}
